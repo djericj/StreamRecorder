@@ -23,12 +23,15 @@ namespace StreamRecorder
         private HttpWebRequest webRequest;
         private VolumeWaveProvider16 volumeProvider;
         private System.Timers.Timer timer1;
+        private WaveRecorder recorder;
+        private string RecordPath;
 
         public event EventHandler<StreamEventMessage> StreamEventMessage;
 
         public event EventHandler<BufferProgressEvent> BufferProgressEvent;
 
         public StreamingPlaybackState PlaybackState => playbackState;
+        public bool Listen { get; set; }
 
         public StreamEncoder()
         {
@@ -53,6 +56,45 @@ namespace StreamRecorder
             }
         }
 
+        public void Record(string streamUrl, string outPath)
+        {
+            RecordPath = outPath;
+            Play(streamUrl);
+        }
+
+        public void Pause()
+        {
+            playbackState = StreamingPlaybackState.Buffering;
+            waveOut.Pause();
+            OnStreamEventMessage(new StreamEventMessage(string.Format("Paused to buffer, waveOut.PlaybackState={0}", waveOut.PlaybackState)));
+        }
+
+        public void Stop()
+        {
+            if (playbackState != StreamingPlaybackState.Stopped)
+            {
+                if (!fullyDownloaded)
+                    webRequest.Abort();
+
+                playbackState = StreamingPlaybackState.Stopped;
+                if (waveOut != null)
+                {
+                    waveOut.Stop();
+                    waveOut.Dispose();
+                    waveOut = null;
+                }
+                if (recorder != null)
+                {
+                    recorder.Dispose();
+                    recorder = null;
+                }
+                timer1.Enabled = false;
+                // n.b. streaming thread may not yet have exited
+                Thread.Sleep(500);
+                ShowBufferState(0);
+            }
+        }
+
         private void Timer1_Elapsed(object sender, System.Timers.ElapsedEventArgs e)
         {
             if (playbackState != StreamingPlaybackState.Stopped)
@@ -61,7 +103,7 @@ namespace StreamRecorder
                 {
                     OnStreamEventMessage(new StreamEventMessage("Creating WaveOut Device"));
                     waveOut = CreateWaveOut();
-                    waveOut.PlaybackStopped += WaveOut_PlaybackStopped; ;
+                    waveOut.PlaybackStopped += WaveOut_PlaybackStopped;
                     volumeProvider = new VolumeWaveProvider16(bufferedWaveProvider);
                     volumeProvider.Volume = 0.5f;
                     waveOut.Init(volumeProvider);
@@ -83,7 +125,7 @@ namespace StreamRecorder
                     else if (fullyDownloaded && bufferedSeconds == 0)
                     {
                         OnStreamEventMessage(new StreamEventMessage("Reached end of stream"));
-                        StopPlayback();
+                        Stop();
                     }
                 }
             }
@@ -115,34 +157,6 @@ namespace StreamRecorder
             playbackState = StreamingPlaybackState.Playing;
         }
 
-        private void Pause()
-        {
-            playbackState = StreamingPlaybackState.Buffering;
-            waveOut.Pause();
-            OnStreamEventMessage(new StreamEventMessage(string.Format("Paused to buffer, waveOut.PlaybackState={0}", waveOut.PlaybackState)));
-        }
-
-        private void StopPlayback()
-        {
-            if (playbackState != StreamingPlaybackState.Stopped)
-            {
-                if (!fullyDownloaded)
-                    webRequest.Abort();
-
-                playbackState = StreamingPlaybackState.Stopped;
-                if (waveOut != null)
-                {
-                    waveOut.Stop();
-                    waveOut.Dispose();
-                    waveOut = null;
-                }
-                timer1.Enabled = false;
-                // n.b. streaming thread may not yet have exited
-                Thread.Sleep(500);
-                ShowBufferState(0);
-            }
-        }
-
         private delegate void ShowErrorDelegate(string message);
 
         private void ShowError(string message) => OnStreamEventMessage(new StreamEventMessage(message));
@@ -153,7 +167,7 @@ namespace StreamRecorder
 
         private void ShowBufferState(double totalSeconds) => OnBufferProgressEvent(new BufferProgressEvent(totalSeconds));
 
-        private IWavePlayer CreateWaveOut() => new WaveOut();
+        private IWavePlayer CreateWaveOut() => new WaveOutEvent();
 
         private void StreamMp3(object state)
         {
@@ -220,6 +234,8 @@ namespace StreamRecorder
                                 bufferedWaveProvider.BufferDuration =
                                     TimeSpan.FromSeconds(20); // allow us to get well ahead of ourselves
                                 //this.bufferedWaveProvider.BufferedDuration = 250;
+                                if (!string.IsNullOrWhiteSpace(RecordPath))
+                                    recorder = new WaveRecorder(bufferedWaveProvider, RecordPath);
                             }
                             int decompressed = decompressor.DecompressFrame(frame, buffer, 0);
                             //Debug.WriteLine(String.Format("Decompressed a frame {0}", decompressed));
