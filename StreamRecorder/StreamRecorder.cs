@@ -58,7 +58,7 @@ namespace StreamRecorder
             RecordOn = Convert.ToBoolean(config.GetSection("AppConfig:RecordOn").Value);
             RecordPath = $@"{config.GetSection("AppConfig:SaveFolder").Value}\KTCKAM-Test.wav";
             timer1 = new System.Timers.Timer();
-            timer1.Interval = 1000;
+            timer1.Interval = 5000;
             timer1.Elapsed += Timer1_Elapsed;
             timer1.Start();
         }
@@ -90,7 +90,7 @@ namespace StreamRecorder
         {
             playbackState = StreamingPlaybackState.Buffering;
             waveOutEvent.Pause();
-            //OnStreamEventMessage(new StreamEventMessage(string.Format("Paused to buffer, waveOut.PlaybackState={0}", waveOutEvent.PlaybackState)));
+            OnStreamEventMessage(new StreamEventMessage(string.Format("Paused to buffer, waveOut.PlaybackState={0}", waveOutEvent.PlaybackState)));
         }
 
         public void UnPause()
@@ -148,6 +148,7 @@ namespace StreamRecorder
 
                     if (RecordOn)
                     {
+                        OnStreamEventMessage(new StreamEventMessage("Record On"));
                         // set up the recorder
                         recorder = new WaveInEvent();
                         recorder.DataAvailable += Recorder_DataAvailable;

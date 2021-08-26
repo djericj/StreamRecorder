@@ -1,12 +1,11 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Text;
 
 namespace StreamRecorder
 {
     public class Show
     {
-        public string Name { get; set; }
-        public TimeSpan Schedule { get; set; }
+        public string Title { get; set; }
+        public TimeSpan StartTime { get; set; }
+        public TimeSpan EndTime { get; set; }
     }
 }

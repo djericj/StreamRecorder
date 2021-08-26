@@ -23,6 +23,7 @@ namespace StreamRecorder
         {
             var streamRecorder = new StreamRecorder(_config);
             streamRecorder.StreamEventMessage += StreamRecorder_StreamEventMessage;
+            streamRecorder.BufferProgressEvent += StreamRecorder_BufferProgressEvent;
             var playlist = ReadPlaylist();
             streamRecorder.Play(playlist.ToArray());
             _logger.LogInformation("P = Play/Pause, S = Stop, Q = Quit");
@@ -43,6 +44,11 @@ namespace StreamRecorder
                     break;
                 }
             }
+        }
+
+        private void StreamRecorder_BufferProgressEvent(object sender, BufferProgressEvent e)
+        {
+            _logger.LogInformation(e.TotalSeconds.ToString());
         }
 
         private void StreamRecorder_StreamEventMessage(object sender, StreamEventMessage e)
