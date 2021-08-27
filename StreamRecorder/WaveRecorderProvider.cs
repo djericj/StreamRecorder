@@ -19,13 +19,9 @@ namespace StreamRecorder
         {
             var read = sourceWaveProvider.Read(buffer, offset, count);
             if (count > 0 && !isWriterDisposed)
-            {
                 writer.Write(buffer, offset, read);
-            }
             if (count == 0)
-            {
                 Dispose(); // auto-dispose in case users forget
-            }
             return read;
         }
 

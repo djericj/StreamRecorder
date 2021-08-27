@@ -1,7 +1,9 @@
 ﻿using Microsoft.Extensions.Configuration;
 using NAudio.Wave;
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Threading;
 
@@ -28,11 +30,11 @@ namespace StreamRecorder
         private volatile StreamingPlaybackState playbackState;
         private volatile bool fullyDownloaded;
         private HttpWebRequest webRequest;
-        private VolumeWaveProvider16 volumeProvider;
         private System.Timers.Timer timer1;
         private WaveInEvent recorder;
         private WaveRecorderProvider waveRecorderProvider;
         private readonly IConfigurationRoot _config;
+        private List<string> _playList;
 
         #endregion Fields
 
@@ -52,11 +54,14 @@ namespace StreamRecorder
 
         #endregion Properties
 
-        public StreamRecorder(IConfigurationRoot config)
+        public StreamRecorder(IConfigurationRoot config, string savePath)
         {
             _config = config;
             RecordOn = Convert.ToBoolean(config.GetSection("AppConfig:RecordOn").Value);
-            RecordPath = $@"{config.GetSection("AppConfig:SaveFolder").Value}\KTCKAM-Test.wav";
+            RecordPath = savePath;
+
+            _playList = ReadPlaylist() as List<string>;
+
             timer1 = new System.Timers.Timer();
             timer1.Interval = 5000;
             timer1.Elapsed += Timer1_Elapsed;
@@ -65,8 +70,9 @@ namespace StreamRecorder
 
         #region Public Methods
 
-        public void Play(string streamUrl)
+        public void Play()
         {
+            var streamUrl = _playList.FirstOrDefault();
             if (playbackState == StreamingPlaybackState.Stopped)
             {
                 playbackState = StreamingPlaybackState.Buffering;
@@ -78,12 +84,6 @@ namespace StreamRecorder
             {
                 playbackState = StreamingPlaybackState.Buffering;
             }
-        }
-
-        public void Play(string[] streamUrls)
-        {
-            //TODO:  get it to cycle through URLs.  For now, we just play the first one and assume it works.
-            Play(streamUrls[0]);
         }
 
         public void Pause()
@@ -143,8 +143,6 @@ namespace StreamRecorder
                     OnStreamEventMessage(new StreamEventMessage("Creating WaveOut Device"));
                     waveOutEvent = CreateWaveOutEvent();
                     waveOutEvent.PlaybackStopped += WaveOut_PlaybackStopped;
-                    volumeProvider = new VolumeWaveProvider16(bufferedWaveProvider);
-                    volumeProvider.Volume = 0.5f;
 
                     if (RecordOn)
                     {
@@ -154,7 +152,7 @@ namespace StreamRecorder
                         recorder.DataAvailable += Recorder_DataAvailable;
 
                         // set up our signal chain
-                        waveRecorderProvider = new WaveRecorderProvider(volumeProvider, RecordPath);
+                        waveRecorderProvider = new WaveRecorderProvider(bufferedWaveProvider, RecordPath);
 
                         // set up playback
                         waveOutEvent.Init(waveRecorderProvider);
@@ -164,14 +162,14 @@ namespace StreamRecorder
                     }
                     else
                     {
-                        waveOutEvent.Init(volumeProvider);
+                        waveOutEvent.Init(bufferedWaveProvider);
                     }
-                    OnBufferProgressEvent(new BufferProgressEvent((double)bufferedWaveProvider.BufferDuration.TotalMilliseconds));
+                    //OnBufferProgressEvent(new BufferProgressEvent((double)bufferedWaveProvider.BufferDuration.TotalMilliseconds));
                 }
                 else if (bufferedWaveProvider != null)
                 {
                     var bufferedSeconds = bufferedWaveProvider.BufferedDuration.TotalSeconds;
-                    ShowBufferState(bufferedSeconds);
+                    //ShowBufferState(bufferedSeconds);
                     // make it stutter less if we buffer up a decent amount before playing
                     if (bufferedSeconds < 0.5 && playbackState == StreamingPlaybackState.Playing && !fullyDownloaded)
                     {
@@ -179,7 +177,7 @@ namespace StreamRecorder
                     }
                     else if (bufferedSeconds > 4 && playbackState == StreamingPlaybackState.Buffering)
                     {
-                        Play();
+                        Start();
                     }
                     else if (fullyDownloaded && bufferedSeconds == 0)
                     {
@@ -218,7 +216,7 @@ namespace StreamRecorder
 
         #region Private Methods
 
-        private void Play()
+        private void Start()
         {
             waveOutEvent.Play();
             OnStreamEventMessage(new StreamEventMessage(string.Format("Started playing, waveOut.PlaybackState={0}", waveOutEvent.PlaybackState)));
@@ -229,13 +227,13 @@ namespace StreamRecorder
 
         private void ShowError(string message) => OnStreamEventMessage(new StreamEventMessage(message));
 
-        private bool IsBufferNearlyFull => bufferedWaveProvider != null &&
-                       bufferedWaveProvider.BufferLength - bufferedWaveProvider.BufferedBytes
-                       < bufferedWaveProvider.WaveFormat.AverageBytesPerSecond / 4;
-
         private void ShowBufferState(double totalSeconds) => OnBufferProgressEvent(new BufferProgressEvent(totalSeconds));
 
         private IWavePlayer CreateWaveOutEvent() => new WaveOutEvent();
+
+        private bool IsBufferNearlyFull => bufferedWaveProvider != null &&
+                       bufferedWaveProvider.BufferLength - bufferedWaveProvider.BufferedBytes
+                       < bufferedWaveProvider.WaveFormat.AverageBytesPerSecond / 4;
 
         private void StreamMp3(object state)
         {
@@ -328,6 +326,22 @@ namespace StreamRecorder
             WaveFormat waveFormat = new Mp3WaveFormat(frame.SampleRate, frame.ChannelMode == ChannelMode.Mono ? 1 : 2,
                 frame.FrameLength, frame.BitRate);
             return new AcmMp3FrameDecompressor(waveFormat);
+        }
+
+        private IEnumerable<string> ReadPlaylist()
+        {
+            var playlistFile = _config.GetSection("AppConfig:Playlist").Value;
+            var path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, playlistFile);
+            string line;
+            List<string> urls = new List<string>();
+            StreamReader file = new StreamReader(path);
+            while ((line = file.ReadLine()) != null)
+                if (line.StartsWith("File"))
+                    urls.Add(line.Substring(line.IndexOf("=") + 1));
+
+            file.Close();
+
+            return urls;
         }
 
         #endregion Private Methods
