@@ -59,7 +59,7 @@ namespace StreamRecorder
             _appSettings = appSettings;
             _recordPath = recordPath;
 
-            _playList = ReadPlaylist() as List<string>;
+            _playList = _appSettings.Value.Playlist;
 
             timer1 = new System.Timers.Timer();
             timer1.Interval = 5000;
@@ -325,22 +325,6 @@ namespace StreamRecorder
             WaveFormat waveFormat = new Mp3WaveFormat(frame.SampleRate, frame.ChannelMode == ChannelMode.Mono ? 1 : 2,
                 frame.FrameLength, frame.BitRate);
             return new AcmMp3FrameDecompressor(waveFormat);
-        }
-
-        private IEnumerable<string> ReadPlaylist()
-        {
-            var playlistFile = _appSettings.Value.Playlist;
-            var path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, playlistFile);
-            string line;
-            List<string> urls = new List<string>();
-            StreamReader file = new StreamReader(path);
-            while ((line = file.ReadLine()) != null)
-                if (line.StartsWith("File"))
-                    urls.Add(line.Substring(line.IndexOf("=") + 1));
-
-            file.Close();
-
-            return urls;
         }
 
         #endregion Private Methods
