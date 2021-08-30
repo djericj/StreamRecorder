@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 using NAudio.Wave;
 using System;
 using System.Collections.Generic;
@@ -30,11 +31,12 @@ namespace StreamRecorder
         private volatile StreamingPlaybackState playbackState;
         private volatile bool fullyDownloaded;
         private HttpWebRequest webRequest;
+        private readonly IOptions<AppSettings> _appSettings;
         private System.Timers.Timer timer1;
         private WaveInEvent recorder;
         private WaveRecorderProvider waveRecorderProvider;
-        private readonly IConfigurationRoot _config;
         private List<string> _playList;
+        private readonly string _recordPath;
 
         #endregion Fields
 
@@ -49,16 +51,13 @@ namespace StreamRecorder
         #region Properties
 
         public StreamingPlaybackState PlaybackState => playbackState;
-        public bool RecordOn { get; private set; }
-        public string RecordPath { get; private set; }
 
         #endregion Properties
 
-        public StreamRecorder(IConfigurationRoot config, string savePath)
+        public StreamRecorder(IOptions<AppSettings> appSettings, string recordPath)
         {
-            _config = config;
-            RecordOn = Convert.ToBoolean(config.GetSection("AppConfig:RecordOn").Value);
-            RecordPath = savePath;
+            _appSettings = appSettings;
+            _recordPath = recordPath;
 
             _playList = ReadPlaylist() as List<string>;
 
@@ -144,7 +143,7 @@ namespace StreamRecorder
                     waveOutEvent = CreateWaveOutEvent();
                     waveOutEvent.PlaybackStopped += WaveOut_PlaybackStopped;
 
-                    if (RecordOn)
+                    if (_appSettings.Value.RecordOn)
                     {
                         OnStreamEventMessage(new StreamEventMessage("Record On"));
                         // set up the recorder
@@ -152,7 +151,7 @@ namespace StreamRecorder
                         recorder.DataAvailable += Recorder_DataAvailable;
 
                         // set up our signal chain
-                        waveRecorderProvider = new WaveRecorderProvider(bufferedWaveProvider, RecordPath);
+                        waveRecorderProvider = new WaveRecorderProvider(bufferedWaveProvider, _recordPath);
 
                         // set up playback
                         waveOutEvent.Init(waveRecorderProvider);
@@ -330,7 +329,7 @@ namespace StreamRecorder
 
         private IEnumerable<string> ReadPlaylist()
         {
-            var playlistFile = _config.GetSection("AppConfig:Playlist").Value;
+            var playlistFile = _appSettings.Value.Playlist;
             var path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, playlistFile);
             string line;
             List<string> urls = new List<string>();

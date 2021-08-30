@@ -1,96 +1,93 @@
 ﻿using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Serilog;
+using Microsoft.Extensions.Options;
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace StreamRecorder
 {
-    internal class Program
+    internal sealed class Program
     {
-        public static IConfigurationRoot configuration;
-
-        private static int Main(string[] args)
+        private static async Task Main(string[] args)
         {
-            var path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "StreamRecorder.Console.log");
-            // Initialize serilog logger
-            Log.Logger = new LoggerConfiguration()
-                 .WriteTo.Console(Serilog.Events.LogEventLevel.Debug)
-                 .WriteTo.File(path)
-                 .MinimumLevel.Debug()
-                 .Enrich.FromLogContext()
-                 .CreateLogger();
+            await Host.CreateDefaultBuilder(args)
+                .UseContentRoot(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location))
+                .ConfigureLogging(logging =>
+                {
+                    // Add any 3rd party loggers like NLog or Serilog
+                })
+                .ConfigureServices((hostContext, services) =>
+                {
+                    services.AddHostedService<ConsoleHostedService>();
+                    services.AddSingleton<ISchedulerService, SchedulerService>();
+                    services.AddOptions<AppSettings>().Bind(hostContext.Configuration.GetSection("AppConfig"));
+                })
+                .RunConsoleAsync();
+        }
+    }
 
-            try
-            {
-                // Start!
-                MainAsync(args).Wait();
-                return 0;
-            }
-            catch (Exception e)
-            {
-                Log.Error(e.Message);
-                Log.Error(e.StackTrace);
-                return 1;
-            }
+    internal sealed class ConsoleHostedService : IHostedService
+    {
+        private readonly ILogger _logger;
+        private readonly IHostApplicationLifetime _appLifetime;
+        private ISchedulerService _schedulerService;
+
+        private int? _exitCode;
+
+        public ConsoleHostedService(
+            ILogger<ConsoleHostedService> logger,
+            IHostApplicationLifetime appLifetime,
+            ISchedulerService schedulerService)
+        {
+            _logger = logger;
+            _appLifetime = appLifetime;
+            _schedulerService = schedulerService;
         }
 
-        private static async Task MainAsync(string[] args)
+        public Task StartAsync(CancellationToken cancellationToken)
         {
-            // Create service collection
-            Log.Information("Creating service collection");
-            ServiceCollection serviceCollection = new ServiceCollection();
-            ConfigureServices(serviceCollection);
+            _logger.LogDebug($"Starting with arguments: {string.Join(" ", Environment.GetCommandLineArgs())}");
 
-            // Create service provider
-            Log.Information("Building service provider");
-            IServiceProvider serviceProvider = serviceCollection.BuildServiceProvider();
+            _appLifetime.ApplicationStarted.Register(() =>
+            {
+                Task.Run(async () =>
+                {
+                    try
+                    {
+                        await _schedulerService.Start();
 
-            // Print connection string to demonstrate configuration object is populated
-            Console.WriteLine(configuration.GetConnectionString("DataConnection"));
+                        _exitCode = 0;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Unhandled exception!");
 
-            try
-            {
-                Log.Information("Starting service");
-                await serviceProvider.GetService<App>().Run();
-                Log.Information("Ending service");
-            }
-            catch (Exception ex)
-            {
-                Log.Fatal(ex, "Error running service");
-                throw ex;
-            }
-            finally
-            {
-                Log.CloseAndFlush();
-            }
+                        _exitCode = 1;
+                    }
+                    finally
+                    {
+                        // Stop the application once the work is done
+                        //_appLifetime.StopApplication();
+                    }
+                });
+            });
+
+            return Task.CompletedTask;
         }
 
-        private static void ConfigureServices(IServiceCollection serviceCollection)
+        public Task StopAsync(CancellationToken cancellationToken)
         {
-            // Add logging
-            serviceCollection.AddSingleton(LoggerFactory.Create(builder =>
-            {
-                builder
-                    .AddSerilog(dispose: true);
-            }));
-
-            serviceCollection.AddLogging();
-
-            // Build configuration
-            configuration = new ConfigurationBuilder()
-                .SetBasePath(Directory.GetParent(AppContext.BaseDirectory).FullName)
-                .AddJsonFile("appsettings.json", false)
-                .Build();
-
-            // Add access to generic IConfigurationRoot
-            serviceCollection.AddSingleton(configuration);
-
-            // Add app
-            serviceCollection.AddTransient<App>();
+            _logger.LogInformation("Called Stop Async");
+            _schedulerService.Stop();
+            // Exit code may be null if the user cancelled via Ctrl+C/SIGTERM
+            Environment.ExitCode = _exitCode.GetValueOrDefault(-1);
+            return Task.CompletedTask;
         }
     }
 }
