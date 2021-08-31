@@ -1,5 +1,4 @@
-﻿using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Options;
+﻿using Microsoft.Extensions.Options;
 using NAudio.Wave;
 using System;
 using System.Collections.Generic;
@@ -153,8 +152,11 @@ namespace StreamRecorder
                         // set up our signal chain
                         waveRecorderProvider = new WaveRecorderProvider(bufferedWaveProvider, _recordPath);
 
+                        var volumeProvider = new VolumeWaveProvider16(waveRecorderProvider);
+                        volumeProvider.Volume = 0;
+
                         // set up playback
-                        waveOutEvent.Init(waveRecorderProvider);
+                        waveOutEvent.Init(volumeProvider);
 
                         // begin playback & record
                         recorder.StartRecording();
