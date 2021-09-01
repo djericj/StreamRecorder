@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Options;
+﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using NAudio.Wave;
 using System;
 using System.Collections.Generic;
@@ -9,7 +10,22 @@ using System.Threading;
 
 namespace StreamRecorder
 {
-    public class StreamRecorder
+    public interface IRecorderService
+    {
+        void Record(string path);
+
+        void Play();
+
+        void Pause();
+
+        void UnPause();
+
+        void Stop();
+
+        void Save(Show show);
+    }
+
+    public class StreamRecorderService : IRecorderService
     {
         #region Enums
 
@@ -25,6 +41,7 @@ namespace StreamRecorder
 
         #region Fields
 
+        private ILogger _logger;
         private BufferedWaveProvider bufferedWaveProvider;
         private IWavePlayer waveOutEvent;
         private volatile StreamingPlaybackState playbackState;
@@ -35,17 +52,9 @@ namespace StreamRecorder
         private WaveInEvent recorder;
         private WaveRecorderProvider waveRecorderProvider;
         private List<string> _playList;
-        private readonly string _recordPath;
+        private string _recordPath;
 
         #endregion Fields
-
-        #region Events
-
-        public event EventHandler<StreamEventMessage> StreamEventMessage;
-
-        public event EventHandler<BufferProgressEvent> BufferProgressEvent;
-
-        #endregion Events
 
         #region Properties
 
@@ -53,10 +62,10 @@ namespace StreamRecorder
 
         #endregion Properties
 
-        public StreamRecorder(IOptions<AppSettings> appSettings, string recordPath)
+        public StreamRecorderService(ILogger<StreamRecorderService> logger, IOptions<AppSettings> appSettings)
         {
+            _logger = logger;
             _appSettings = appSettings;
-            _recordPath = recordPath;
 
             _playList = _appSettings.Value.Playlist;
 
@@ -67,6 +76,12 @@ namespace StreamRecorder
         }
 
         #region Public Methods
+
+        public void Record(string path)
+        {
+            _recordPath = path;
+            Play();
+        }
 
         public void Play()
         {
@@ -88,7 +103,7 @@ namespace StreamRecorder
         {
             playbackState = StreamingPlaybackState.Buffering;
             waveOutEvent.Pause();
-            OnStreamEventMessage(new StreamEventMessage(string.Format("Paused to buffer, waveOut.PlaybackState={0}", waveOutEvent.PlaybackState)));
+            _logger.LogInformation(string.Format("Paused to buffer, waveOut.PlaybackState={0}", waveOutEvent.PlaybackState));
         }
 
         public void UnPause()
@@ -118,15 +133,16 @@ namespace StreamRecorder
                     recorder = null;
                 }
                 if (waveRecorderProvider != null)
-                {
                     waveRecorderProvider.Dispose();
-                }
+
                 timer1.Enabled = false;
                 // n.b. streaming thread may not yet have exited
                 Thread.Sleep(500);
-                ShowBufferState(0);
+                //ShowBufferState(0);
             }
         }
+
+        public void Save(Show show) => throw new NotImplementedException();
 
         #endregion Public Methods
 
@@ -138,13 +154,13 @@ namespace StreamRecorder
             {
                 if (waveOutEvent == null && bufferedWaveProvider != null)
                 {
-                    OnStreamEventMessage(new StreamEventMessage("Creating WaveOut Device"));
+                    _logger.LogInformation("Creating WaveOut Device");
                     waveOutEvent = CreateWaveOutEvent();
                     waveOutEvent.PlaybackStopped += WaveOut_PlaybackStopped;
 
                     if (_appSettings.Value.RecordOn)
                     {
-                        OnStreamEventMessage(new StreamEventMessage("Record On"));
+                        _logger.LogInformation($"Recording to {_recordPath}");
                         // set up the recorder
                         recorder = new WaveInEvent();
                         recorder.DataAvailable += Recorder_DataAvailable;
@@ -182,7 +198,7 @@ namespace StreamRecorder
                     }
                     else if (fullyDownloaded && bufferedSeconds == 0)
                     {
-                        OnStreamEventMessage(new StreamEventMessage("Reached end of stream"));
+                        _logger.LogInformation("Reached end of stream");
                         Stop();
                     }
                 }
@@ -191,27 +207,13 @@ namespace StreamRecorder
 
         private void WaveOut_PlaybackStopped(object sender, StoppedEventArgs e)
         {
-            OnStreamEventMessage(new StreamEventMessage("Playback Stopped"));
+            _logger.LogInformation("Playback Stopped");
             if (e.Exception != null)
-                OnStreamEventMessage(new StreamEventMessage(String.Format("Playback Error {0}", e.Exception.Message)));
+                _logger.LogInformation(string.Format("Playback Error {0}", e.Exception.Message));
         }
 
-        protected virtual void OnStreamEventMessage(StreamEventMessage e)
-        {
-            EventHandler<StreamEventMessage> handler = StreamEventMessage;
-            handler?.Invoke(this, e);
-        }
-
-        protected virtual void OnBufferProgressEvent(BufferProgressEvent e)
-        {
-            EventHandler<BufferProgressEvent> handler = BufferProgressEvent;
-            handler?.Invoke(this, e);
-        }
-
-        private void Recorder_DataAvailable(object sender, WaveInEventArgs e)
-        {
+        private void Recorder_DataAvailable(object sender, WaveInEventArgs e) =>
             bufferedWaveProvider.AddSamples(e.Buffer, 0, e.BytesRecorded);
-        }
 
         #endregion Event Handlers
 
@@ -220,15 +222,15 @@ namespace StreamRecorder
         private void Start()
         {
             waveOutEvent.Play();
-            OnStreamEventMessage(new StreamEventMessage(string.Format("Started playing, waveOut.PlaybackState={0}", waveOutEvent.PlaybackState)));
+            _logger.LogInformation(string.Format("Started playing, waveOut.PlaybackState={0}", waveOutEvent.PlaybackState));
             playbackState = StreamingPlaybackState.Playing;
         }
 
         private delegate void ShowErrorDelegate(string message);
 
-        private void ShowError(string message) => OnStreamEventMessage(new StreamEventMessage(message));
+        private void ShowError(string message) => _logger.LogError(message);
 
-        private void ShowBufferState(double totalSeconds) => OnBufferProgressEvent(new BufferProgressEvent(totalSeconds));
+        private void ShowBufferState(double totalSeconds) => _logger.LogInformation($"Buffer Event: {totalSeconds}");
 
         private IWavePlayer CreateWaveOutEvent() => new WaveOutEvent();
 
@@ -240,7 +242,7 @@ namespace StreamRecorder
         {
             fullyDownloaded = false;
             var url = (string)state;
-            OnStreamEventMessage(new StreamEventMessage("Connecting to " + url));
+            _logger.LogInformation("Connecting to " + url);
             webRequest = (HttpWebRequest)WebRequest.Create(url);
             HttpWebResponse resp;
             try
@@ -250,9 +252,7 @@ namespace StreamRecorder
             catch (WebException e)
             {
                 if (e.Status != WebExceptionStatus.RequestCanceled)
-                {
                     ShowError(e.Message);
-                }
                 return;
             }
             var buffer = new byte[16384 * 4]; // needs to be big enough to hold a decompressed frame
@@ -281,13 +281,13 @@ namespace StreamRecorder
                             {
                                 fullyDownloaded = true;
                                 // reached the end of the MP3 file / stream
-                                OnStreamEventMessage(new StreamEventMessage("Stream ended."));
+                                _logger.LogInformation("Stream ended.");
                                 break;
                             }
                             catch (WebException)
                             {
                                 // probably we have aborted download from the GUI thread
-                                OnStreamEventMessage(new StreamEventMessage("Aborted download."));
+                                _logger.LogInformation("Aborted download.");
                                 break;
                             }
                             if (frame == null) break;
@@ -307,7 +307,7 @@ namespace StreamRecorder
                             bufferedWaveProvider.AddSamples(buffer, 0, decompressed);
                         }
                     } while (playbackState != StreamingPlaybackState.Stopped);
-                    OnStreamEventMessage(new StreamEventMessage("Exiting"));
+                    _logger.LogInformation("Exiting");
                     // was doing this in a finally block, but for some reason
                     // we are hanging on response stream .Dispose so never get there
                     decompressor.Dispose();
@@ -316,9 +316,7 @@ namespace StreamRecorder
             finally
             {
                 if (decompressor != null)
-                {
                     decompressor.Dispose();
-                }
             }
         }
 

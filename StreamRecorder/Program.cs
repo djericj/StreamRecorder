@@ -20,6 +20,7 @@ namespace StreamRecorder
                 {
                     services.AddHostedService<ConsoleHostedService>();
                     services.AddSingleton<ISchedulerService, SchedulerService>();
+                    services.AddSingleton<IRecorderService, StreamRecorderService>();
                     services.AddOptions<AppSettings>().Bind(hostContext.Configuration.GetSection("AppConfig"));
                 })
                 .RunConsoleAsync();

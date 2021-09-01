@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace StreamRecorder
@@ -23,12 +24,13 @@ namespace StreamRecorder
         private List<Show> _shows;
         private Show currentShow;
         private bool idle = false;
-        private StreamRecorder _streamRecorder;
+        private IRecorderService _recorderService;
 
-        public SchedulerService(ILogger<SchedulerService> logger, IOptions<AppSettings> appSettings)
+        public SchedulerService(ILogger<SchedulerService> logger, IOptions<AppSettings> appSettings, IRecorderService recorderService)
         {
             _logger = logger;
             _appSettings = appSettings;
+            _recorderService = recorderService;
         }
 
         public async Task Start()
@@ -46,6 +48,8 @@ namespace StreamRecorder
                 if (currentShow != null)
                 {
                     _logger.LogInformation($"Current show is {currentShow.Title}");
+                    if (DateTime.Now.TimeOfDay > currentShow.StartTime)
+                        currentShow.StartTime = DateTime.Now.TimeOfDay;
                     StartShow(currentShow);
                 }
             });
@@ -56,29 +60,49 @@ namespace StreamRecorder
             await Task.Run(() =>
             {
                 if (currentShow != null)
+                {
+                    if (currentShow.EndTime > DateTime.Now.TimeOfDay)
+                        currentShow.EndTime = DateTime.Now.TimeOfDay;
                     EndShow(currentShow);
+                    currentShow = null;
+                }
             });
         }
 
         private void StartShow(Show show)
         {
-            var basePath = _appSettings.Value.SaveFolder;
-            var today = DateTime.Now.ToString("yyy-MM-dd");
-            var fileName = $"{show.Title}-{today}-{show.StartTime.ToString("hhmm")}-{show.EndTime.ToString("hhmm")}";
-            var filePath = $@"{basePath}\{today}";
-            var savePath = $@"{filePath}\{fileName}.wav";
-            if (!Directory.Exists(filePath)) Directory.CreateDirectory(filePath);
-            if (File.Exists(savePath)) File.Delete(savePath);
-            _streamRecorder = new StreamRecorder(_appSettings, savePath);
-            _streamRecorder.StreamEventMessage += StreamRecorder_StreamEventMessage;
-            _streamRecorder.BufferProgressEvent += StreamRecorder_BufferProgressEvent;
-            _streamRecorder.Play();
+            var path = $"{_appSettings.Value.SaveFolder}\\" +
+                       $"{DateTime.Now.ToString("yyy-MM-dd")}\\" +
+                       $"{show.Title}-" +
+                       $"{DateTime.Now.ToString("yyy-MM-dd")}-" +
+                       $"{show.StartTime.ToString("hhmm")}-" +
+                       $"{show.EndTime.ToString("hhmm")}.wav";
+
+            if (!Directory.Exists(Path.GetDirectoryName(path)))
+                Directory.CreateDirectory(Path.GetDirectoryName(path));
+
+            if (File.Exists(path))
+                File.Delete(path);
+
+            _recorderService.Record(path);
+
+            show.FileName = path;
         }
 
         private void EndShow(Show show)
         {
+            var existingName = Path.GetFileNameWithoutExtension(show.FileName);
+            var newName = existingName.Substring(0, existingName.Length - 4) + DateTime.Now.TimeOfDay.ToString("hhmm") + ".wav";
+
             _logger.LogInformation($"Ending show {show.Title}");
-            _streamRecorder.Stop();
+            _recorderService.Stop();
+
+            Thread.Sleep(2000);
+
+            //_logger.LogInformation($"Renaming from {show.FileName}");
+            File.Move(show.FileName, Path.Combine(Path.GetDirectoryName(show.FileName), newName));
+            show.FileName = newName;
+            //_recorderService.Save(show);
         }
 
         private void Timer1_Elapsed(object sender, System.Timers.ElapsedEventArgs e)
