@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace StreamRecorder
+namespace StreamRecorder.Domain
 {
     public class Show
     {

@@ -1,5 +1,7 @@
 ﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using StreamRecorder.Domain;
+using StreamRecorder.Interfaces;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -9,13 +11,6 @@ using System.Threading.Tasks;
 
 namespace StreamRecorder
 {
-    public interface ISchedulerService
-    {
-        Task Start();
-
-        Task Stop();
-    }
-
     public class SchedulerService : ISchedulerService
     {
         private readonly ILogger _logger;
@@ -71,6 +66,7 @@ namespace StreamRecorder
 
         private void StartShow(Show show)
         {
+            _logger.LogInformation($"Starting show {currentShow.Title}");
             var path = $"{_appSettings.Value.SaveFolder}\\" +
                        $"{DateTime.Now.ToString("yyy-MM-dd")}\\" +
                        $"{show.Title}-" +
@@ -99,10 +95,8 @@ namespace StreamRecorder
 
             Thread.Sleep(2000);
 
-            //_logger.LogInformation($"Renaming from {show.FileName}");
             File.Move(show.FileName, Path.Combine(Path.GetDirectoryName(show.FileName), newName));
             show.FileName = newName;
-            //_recorderService.Save(show);
         }
 
         private void Timer1_Elapsed(object sender, System.Timers.ElapsedEventArgs e)
@@ -118,16 +112,24 @@ namespace StreamRecorder
                     if (currentShow != null)
                     {
                         StartShow(currentShow);
-                        _logger.LogInformation($"Change Show: Starting {currentShow.Title}");
                     }
                 }
             }
             else
             {
-                if (!idle)
+                var firstShow = GetFirstShow();
+                if (!idle) // NOT idle
                 {
-                    _logger.LogInformation($"Idle.  Next show starts at {GetFirstShow().StartTime.ToString("hh\\:mm")}");
+                    _logger.LogInformation($"Idle.  Next show starts at {firstShow.StartTime.ToString("hh\\:mm")}");
                     idle = true;
+                }
+                else // IS idle
+                {
+                    if (TimeBetween(DateTime.Now, firstShow.StartTime, firstShow.EndTime))
+                    {
+                        StartShow(currentShow);
+                        idle = false;
+                    }
                 }
             }
         }

@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using StreamRecorder.Domain;
+using System.Collections.Generic;
 
 namespace StreamRecorder
 {

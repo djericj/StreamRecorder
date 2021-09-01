@@ -2,6 +2,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using StreamRecorder.Interfaces;
 using System;
 using System.IO;
 using System.Reflection;

@@ -1,6 +1,8 @@
 ﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using NAudio.Wave;
+using StreamRecorder.Domain;
+using StreamRecorder.Interfaces;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -10,21 +12,6 @@ using System.Threading;
 
 namespace StreamRecorder
 {
-    public interface IRecorderService
-    {
-        void Record(string path);
-
-        void Play();
-
-        void Pause();
-
-        void UnPause();
-
-        void Stop();
-
-        void Save(Show show);
-    }
-
     public class StreamRecorderService : IRecorderService
     {
         #region Enums
