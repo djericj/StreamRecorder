@@ -1,6 +1,6 @@
 ﻿using System.Threading.Tasks;
 
-namespace StreamRecorder.Interfaces
+namespace StreamRecorderLib.Interfaces
 {
     public interface ISchedulerService
     {

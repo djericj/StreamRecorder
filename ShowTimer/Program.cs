@@ -35,6 +35,8 @@ namespace ShowTimer
         private readonly IHostApplicationLifetime _appLifetime;
         private System.Timers.Timer timer1;
         private Show currentShow;
+        private Show _nextShow;
+        private bool _recording = false;
         private List<Show> _shows;
         private bool idle = false;
 
@@ -66,6 +68,8 @@ namespace ShowTimer
                         currentShow = GetCurrentShow();
                         if (currentShow != null)
                             _logger.LogInformation($"Current show is {currentShow.Title}");
+                        else
+                            currentShow = GetNextShow(DateTime.Now.TimeOfDay);
 
                         _exitCode = 0;
                     }
@@ -96,21 +100,54 @@ namespace ShowTimer
 
         private void Timer1_Elapsed(object sender, System.Timers.ElapsedEventArgs e)
         {
-            if (currentShow != null)
+            var timeOfDay = DateTime.Now.TimeOfDay;
+            var firstShow = _shows.OrderBy(x => x.StartTime).FirstOrDefault();
+            var lastShow = _shows.OrderByDescending(x => x.EndTime).FirstOrDefault();
+            if (idle)
             {
-                if (!TimeBetween(DateTime.Now, currentShow.StartTime, currentShow.EndTime))
+                if (timeOfDay > firstShow.StartTime && timeOfDay < firstShow.EndTime)
                 {
-                    currentShow = GetCurrentShow();
-                    if (currentShow != null)
-                        _logger.LogInformation($"Change Show: Starting {currentShow.Title}");
+                    idle = false;
+                    currentShow = firstShow;
                 }
             }
-            else
+            if (!idle)
             {
-                if (!idle)
+                if (currentShow == null)
                 {
-                    _logger.LogInformation($"Idle.  Next show starts at {_shows.OrderBy(x => x.StartTime).FirstOrDefault().StartTime.ToString("hh\\:mm")}");
-                    idle = true;
+                    currentShow = GetNextShow(timeOfDay);
+                }
+                if (currentShow != null)
+                {
+                    if (timeOfDay > currentShow.StartTime && timeOfDay < currentShow.EndTime)
+                    {
+                        // show running
+                        if (!_recording)
+                        {
+                            _logger.LogInformation($"Starting {currentShow.Title}");
+                            _logger.LogInformation($"Recording {currentShow.Title}");
+                            _recording = true;
+                        }
+                    }
+                    else if (_recording && timeOfDay > currentShow.EndTime)
+                    {
+                        // end show
+                        _logger.LogInformation($"End show {currentShow.Title}");
+                        _logger.LogInformation($"Stop recording {currentShow.Title}");
+
+                        currentShow = null;
+                        _recording = false;
+
+                        if (timeOfDay > lastShow.EndTime)
+                        {
+                            idle = true;
+                        }
+                    }
+                    else
+                    {
+                        _logger.LogInformation($"Next show starts at {currentShow.StartTime.ToString(@"hh\:mm")}");
+                        idle = true;
+                    }
                 }
             }
         }
@@ -129,6 +166,22 @@ namespace ShowTimer
         private Show GetCurrentShow()
         {
             return _shows.Where(x => TimeBetween(DateTime.Now, x.StartTime, x.EndTime)).FirstOrDefault();
+        }
+
+        private Show GetFirstShow() => _shows.OrderBy(x => x.StartTime).FirstOrDefault();
+
+        private Show GetNextShow(Show currentShow)
+        {
+            var s = _shows.SkipWhile(item => item.Title != currentShow.Title).Skip(1).FirstOrDefault();
+            if (s == null) s = GetFirstShow();
+            return s;
+        }
+
+        private Show GetNextShow(TimeSpan timeOfDay)
+        {
+            var s = _shows.Where(x => timeOfDay > x.StartTime && timeOfDay < x.EndTime).FirstOrDefault();
+            if (s == null) s = GetFirstShow();
+            return s;
         }
 
         private static bool TimeBetween(DateTime datetime, TimeSpan start, TimeSpan end)

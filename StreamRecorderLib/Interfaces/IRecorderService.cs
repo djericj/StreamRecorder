@@ -1,6 +1,6 @@
-﻿using StreamRecorder.Domain;
+﻿using StreamRecorderLib.Domain;
 
-namespace StreamRecorder.Interfaces
+namespace StreamRecorderLib.Interfaces
 {
     public interface IRecorderService
     {

@@ -3,9 +3,11 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 16
 VisualStudioVersion = 16.0.30907.101
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "StreamRecorder", "StreamRecorder\StreamRecorder.csproj", "{B2DAF972-B805-4B9A-8FA9-042D309D64F5}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "StreamRecorder", "StreamRecorder\StreamRecorder.csproj", "{B2DAF972-B805-4B9A-8FA9-042D309D64F5}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ShowTimer", "ShowTimer\ShowTimer.csproj", "{185DA01B-C1ED-4F99-A0C3-EDEDE8B9FEF4}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ShowTimer", "ShowTimer\ShowTimer.csproj", "{185DA01B-C1ED-4F99-A0C3-EDEDE8B9FEF4}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "StreamRecorderLib", "StreamRecorderLib\StreamRecorderLib.csproj", "{F42F94FE-7739-4AB2-B40A-D4365C68343B}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -21,6 +23,10 @@ Global
 		{185DA01B-C1ED-4F99-A0C3-EDEDE8B9FEF4}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{185DA01B-C1ED-4F99-A0C3-EDEDE8B9FEF4}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{185DA01B-C1ED-4F99-A0C3-EDEDE8B9FEF4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F42F94FE-7739-4AB2-B40A-D4365C68343B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F42F94FE-7739-4AB2-B40A-D4365C68343B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F42F94FE-7739-4AB2-B40A-D4365C68343B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F42F94FE-7739-4AB2-B40A-D4365C68343B}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

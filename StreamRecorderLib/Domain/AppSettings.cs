@@ -1,12 +1,13 @@
-﻿using StreamRecorder.Domain;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 
-namespace StreamRecorder
+namespace StreamRecorderLib.Domain
 {
     public class AppSettings
     {
         public List<string> Playlist { get; set; }
+        public int DaysToKeep { get; set; }
         public bool RecordOn { get; set; }
+        public bool RestartOnException { get; set; }
         public string SaveFolder { get; set; }
         public List<Show> Schedule { get; set; }
     }

@@ -2,7 +2,9 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using StreamRecorder.Interfaces;
+using StreamRecorderLib.Domain;
+using StreamRecorderLib.Interfaces;
+using StreamRecorderLib.Services;
 using System;
 using System.IO;
 using System.Reflection;
@@ -22,6 +24,7 @@ namespace StreamRecorder
                     services.AddHostedService<ConsoleHostedService>();
                     services.AddSingleton<ISchedulerService, SchedulerService>();
                     services.AddSingleton<IRecorderService, StreamRecorderService>();
+                    services.AddSingleton<IFileManagementService, FileManagementService>();
                     services.AddOptions<AppSettings>().Bind(hostContext.Configuration.GetSection("AppConfig"));
                 })
                 .RunConsoleAsync();
@@ -32,7 +35,7 @@ namespace StreamRecorder
     {
         private readonly ILogger _logger;
         private readonly IHostApplicationLifetime _appLifetime;
-        private ISchedulerService _schedulerService;
+        private readonly ISchedulerService _schedulerService;
 
         public ConsoleHostedService(
             ILogger<ConsoleHostedService> logger,

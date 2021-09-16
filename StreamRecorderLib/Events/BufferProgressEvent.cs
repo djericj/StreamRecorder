@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace StreamRecorder
+namespace StreamRecorderLib.Events
 {
     public class BufferProgressEvent : EventArgs
     {

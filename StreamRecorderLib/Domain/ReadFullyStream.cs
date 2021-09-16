@@ -1,7 +1,7 @@
 ﻿using System;
 using System.IO;
 
-namespace StreamRecorder.Domain
+namespace StreamRecorderLib.Domain
 {
     public class ReadFullyStream : Stream
     {

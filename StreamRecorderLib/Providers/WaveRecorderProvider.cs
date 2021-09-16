@@ -1,7 +1,7 @@
 ﻿using NAudio.Wave;
 using System;
 
-namespace StreamRecorder
+namespace StreamRecorderLib.Providers
 {
     public class WaveRecorderProvider : IWaveProvider, IDisposable
     {

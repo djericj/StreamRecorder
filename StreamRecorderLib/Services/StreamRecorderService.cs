@@ -1,8 +1,9 @@
 ﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using NAudio.Wave;
-using StreamRecorder.Domain;
-using StreamRecorder.Interfaces;
+using StreamRecorderLib.Domain;
+using StreamRecorderLib.Interfaces;
+using StreamRecorderLib.Providers;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -10,7 +11,7 @@ using System.Linq;
 using System.Net;
 using System.Threading;
 
-namespace StreamRecorder
+namespace StreamRecorderLib.Services
 {
     public class StreamRecorderService : IRecorderService
     {
@@ -28,18 +29,20 @@ namespace StreamRecorder
 
         #region Fields
 
-        private ILogger _logger;
-        private BufferedWaveProvider bufferedWaveProvider;
-        private IWavePlayer waveOutEvent;
+        private readonly ILogger _logger;
+        private readonly IOptions<AppSettings> _appSettings;
+        private readonly System.Timers.Timer timer1;
+
         private volatile StreamingPlaybackState playbackState;
         private volatile bool fullyDownloaded;
+
+        private BufferedWaveProvider bufferedWaveProvider;
+        private IWavePlayer waveOutEvent;
         private HttpWebRequest webRequest;
-        private readonly IOptions<AppSettings> _appSettings;
-        private System.Timers.Timer timer1;
         private WaveInEvent recorder;
         private WaveRecorderProvider waveRecorderProvider;
-        private List<string> _playList;
         private string _recordPath;
+        private readonly List<string> _playList;
 
         #endregion Fields
 
@@ -56,8 +59,10 @@ namespace StreamRecorder
 
             _playList = _appSettings.Value.Playlist;
 
-            timer1 = new System.Timers.Timer();
-            timer1.Interval = 5000;
+            timer1 = new System.Timers.Timer
+            {
+                Interval = 5000
+            };
             timer1.Elapsed += Timer1_Elapsed;
             timer1.Start();
         }
@@ -155,8 +160,10 @@ namespace StreamRecorder
                         // set up our signal chain
                         waveRecorderProvider = new WaveRecorderProvider(bufferedWaveProvider, _recordPath);
 
-                        var volumeProvider = new VolumeWaveProvider16(waveRecorderProvider);
-                        volumeProvider.Volume = 0;
+                        var volumeProvider = new VolumeWaveProvider16(waveRecorderProvider)
+                        {
+                            Volume = 0
+                        };
 
                         // set up playback
                         waveOutEvent.Init(volumeProvider);
@@ -196,7 +203,20 @@ namespace StreamRecorder
         {
             _logger.LogInformation("Playback Stopped");
             if (e.Exception != null)
-                _logger.LogInformation(string.Format("Playback Error {0}", e.Exception.Message));
+            {
+                _logger.LogError(string.Format("Playback Error {0}", e.Exception.Message));
+                if (e.Exception.Message.Contains("NoDriver calling waveOutWrite"))
+                {
+                    if (_appSettings.Value.RestartOnException)
+                    {
+                        _logger.LogWarning("Attempting restart...");
+                        Stop();
+                        timer1.Stop();
+                        timer1.Start();
+                        Record(_recordPath);
+                    }
+                }
+            }
         }
 
         private void Recorder_DataAvailable(object sender, WaveInEventArgs e) =>
@@ -216,8 +236,6 @@ namespace StreamRecorder
         private delegate void ShowErrorDelegate(string message);
 
         private void ShowError(string message) => _logger.LogError(message);
-
-        private void ShowBufferState(double totalSeconds) => _logger.LogInformation($"Buffer Event: {totalSeconds}");
 
         private IWavePlayer CreateWaveOutEvent() => new WaveOutEvent();
 
@@ -247,58 +265,58 @@ namespace StreamRecorder
             IMp3FrameDecompressor decompressor = null;
             try
             {
-                using (var responseStream = resp.GetResponseStream())
+                using var responseStream = resp.GetResponseStream();
+                var readFullyStream = new ReadFullyStream(responseStream);
+                do
                 {
-                    var readFullyStream = new ReadFullyStream(responseStream);
-                    do
+                    if (IsBufferNearlyFull)
                     {
-                        if (IsBufferNearlyFull)
+                        //OnStreamEventMessage(new StreamEventMessage("Buffer getting full, taking a break"));
+                        Thread.Sleep(500);
+                    }
+                    else
+                    {
+                        Mp3Frame frame;
+                        try
                         {
-                            //OnStreamEventMessage(new StreamEventMessage("Buffer getting full, taking a break"));
-                            Thread.Sleep(500);
+                            frame = Mp3Frame.LoadFromStream(readFullyStream);
                         }
-                        else
+                        catch (EndOfStreamException)
                         {
-                            Mp3Frame frame;
-                            try
-                            {
-                                frame = Mp3Frame.LoadFromStream(readFullyStream);
-                            }
-                            catch (EndOfStreamException)
-                            {
-                                fullyDownloaded = true;
-                                // reached the end of the MP3 file / stream
-                                _logger.LogInformation("Stream ended.");
-                                break;
-                            }
-                            catch (WebException)
-                            {
-                                // probably we have aborted download from the GUI thread
-                                _logger.LogInformation("Aborted download.");
-                                break;
-                            }
-                            if (frame == null) break;
-                            if (decompressor == null)
-                            {
-                                // don't think these details matter too much - just help ACM select the right codec
-                                // however, the buffered provider doesn't know what sample rate it is working at
-                                // until we have a frame
-                                decompressor = CreateFrameDecompressor(frame);
-                                bufferedWaveProvider = new BufferedWaveProvider(decompressor.OutputFormat);
-                                bufferedWaveProvider.BufferDuration =
-                                    TimeSpan.FromSeconds(20); // allow us to get well ahead of ourselves
-                                                              //this.bufferedWaveProvider.BufferedDuration = 250;
-                            }
-                            int decompressed = decompressor.DecompressFrame(frame, buffer, 0);
-                            //Debug.WriteLine(String.Format("Decompressed a frame {0}", decompressed));
-                            bufferedWaveProvider.AddSamples(buffer, 0, decompressed);
+                            fullyDownloaded = true;
+                            // reached the end of the MP3 file / stream
+                            _logger.LogInformation("Stream ended.");
+                            break;
                         }
-                    } while (playbackState != StreamingPlaybackState.Stopped);
-                    _logger.LogInformation("Exiting");
-                    // was doing this in a finally block, but for some reason
-                    // we are hanging on response stream .Dispose so never get there
-                    decompressor.Dispose();
-                }
+                        catch (WebException)
+                        {
+                            // probably we have aborted download from the GUI thread
+                            _logger.LogInformation("Aborted download.");
+                            break;
+                        }
+                        if (frame == null) break;
+                        if (decompressor == null)
+                        {
+                            // don't think these details matter too much - just help ACM select the right codec
+                            // however, the buffered provider doesn't know what sample rate it is working at
+                            // until we have a frame
+                            decompressor = CreateFrameDecompressor(frame);
+                            bufferedWaveProvider = new BufferedWaveProvider(decompressor.OutputFormat)
+                            {
+                                BufferDuration =
+                                TimeSpan.FromSeconds(20) // allow us to get well ahead of ourselves
+                            };
+                            //this.bufferedWaveProvider.BufferedDuration = 250;
+                        }
+                        int decompressed = decompressor.DecompressFrame(frame, buffer, 0);
+                        //Debug.WriteLine(String.Format("Decompressed a frame {0}", decompressed));
+                        bufferedWaveProvider.AddSamples(buffer, 0, decompressed);
+                    }
+                } while (playbackState != StreamingPlaybackState.Stopped);
+                _logger.LogInformation("Exiting");
+                // was doing this in a finally block, but for some reason
+                // we are hanging on response stream .Dispose so never get there
+                decompressor.Dispose();
             }
             finally
             {
