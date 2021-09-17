@@ -2,6 +2,7 @@
 using Microsoft.Extensions.Options;
 using NAudio.Wave;
 using StreamRecorderLib.Domain;
+using StreamRecorderLib.Events;
 using StreamRecorderLib.Interfaces;
 using StreamRecorderLib.Providers;
 using System;
@@ -29,7 +30,6 @@ namespace StreamRecorderLib.Services
 
         #region Fields
 
-        private readonly ILogger _logger;
         private readonly IOptions<AppSettings> _appSettings;
         private readonly System.Timers.Timer timer1;
 
@@ -44,6 +44,10 @@ namespace StreamRecorderLib.Services
         private string _recordPath;
         private readonly List<string> _playList;
 
+        public event EventHandler<RecorderEventArgs> RecorderEvent;
+
+        public event EventHandler<RecorderExceptionArgs> RecorderException;
+
         #endregion Fields
 
         #region Properties
@@ -52,9 +56,8 @@ namespace StreamRecorderLib.Services
 
         #endregion Properties
 
-        public StreamRecorderService(ILogger<StreamRecorderService> logger, IOptions<AppSettings> appSettings)
+        public StreamRecorderService(IOptions<AppSettings> appSettings)
         {
-            _logger = logger;
             _appSettings = appSettings;
 
             _playList = _appSettings.Value.Playlist;
@@ -95,7 +98,9 @@ namespace StreamRecorderLib.Services
         {
             playbackState = StreamingPlaybackState.Buffering;
             waveOutEvent.Pause();
-            _logger.LogInformation(string.Format("Paused to buffer, waveOut.PlaybackState={0}", waveOutEvent.PlaybackState));
+            RecorderEvent?.Invoke(this,
+                new RecorderEventArgs(string.Format("Paused to buffer, waveOut.PlaybackState={0}", waveOutEvent.PlaybackState),
+                LogLevel.Information));
         }
 
         public void UnPause()
@@ -146,13 +151,17 @@ namespace StreamRecorderLib.Services
             {
                 if (waveOutEvent == null && bufferedWaveProvider != null)
                 {
-                    _logger.LogInformation("Creating WaveOut Device");
+                    RecorderEvent?.Invoke(this,
+                        new RecorderEventArgs("Creating WaveOut Device",
+                        LogLevel.Information));
                     waveOutEvent = CreateWaveOutEvent();
                     waveOutEvent.PlaybackStopped += WaveOut_PlaybackStopped;
 
                     if (_appSettings.Value.RecordOn)
                     {
-                        _logger.LogInformation($"Recording to {_recordPath}");
+                        RecorderEvent?.Invoke(this,
+                            new RecorderEventArgs($"Recording to {_recordPath}",
+                            LogLevel.Information));
                         // set up the recorder
                         recorder = new WaveInEvent();
                         recorder.DataAvailable += Recorder_DataAvailable;
@@ -192,7 +201,9 @@ namespace StreamRecorderLib.Services
                     }
                     else if (fullyDownloaded && bufferedSeconds == 0)
                     {
-                        _logger.LogInformation("Reached end of stream");
+                        RecorderEvent?.Invoke(this,
+                            new RecorderEventArgs($"Reached end of stream",
+                            LogLevel.Information));
                         Stop();
                     }
                 }
@@ -201,21 +212,13 @@ namespace StreamRecorderLib.Services
 
         private void WaveOut_PlaybackStopped(object sender, StoppedEventArgs e)
         {
-            _logger.LogInformation("Playback Stopped");
+            RecorderEvent?.Invoke(this, new RecorderEventArgs("Playback Stopped", LogLevel.Information));
+            //_logger.LogInformation("Playback Stopped");
             if (e.Exception != null)
             {
-                _logger.LogError(string.Format("Playback Error {0}", e.Exception.Message));
-                if (e.Exception.Message.Contains("NoDriver calling waveOutWrite"))
-                {
-                    if (_appSettings.Value.RestartOnException)
-                    {
-                        _logger.LogWarning("Attempting restart...");
-                        Stop();
-                        timer1.Stop();
-                        timer1.Start();
-                        Record(_recordPath);
-                    }
-                }
+                //_logger.LogError(string.Format("Playback Error {0}", e.Exception.Message));
+                RecorderEvent?.Invoke(this, new RecorderEventArgs(string.Format("Playback Error {0}", e.Exception.Message), LogLevel.Error));
+                RecorderException?.Invoke(this, new RecorderExceptionArgs(e.Exception));
             }
         }
 
@@ -229,13 +232,19 @@ namespace StreamRecorderLib.Services
         private void Start()
         {
             waveOutEvent.Play();
-            _logger.LogInformation(string.Format("Started playing, waveOut.PlaybackState={0}", waveOutEvent.PlaybackState));
+            var operation = !string.IsNullOrEmpty(_recordPath) ?
+                                                "recording" :
+                                                "playing";
+            RecorderEvent?.Invoke(this,
+                            new RecorderEventArgs(
+                                string.Format($"Started {operation}, waveOut.PlaybackState={waveOutEvent.PlaybackState}"),
+                            LogLevel.Information));
             playbackState = StreamingPlaybackState.Playing;
         }
 
         private delegate void ShowErrorDelegate(string message);
 
-        private void ShowError(string message) => _logger.LogError(message);
+        private void ShowError(string message) => RecorderEvent?.Invoke(this, new RecorderEventArgs(message, LogLevel.Error));
 
         private IWavePlayer CreateWaveOutEvent() => new WaveOutEvent();
 
@@ -247,7 +256,7 @@ namespace StreamRecorderLib.Services
         {
             fullyDownloaded = false;
             var url = (string)state;
-            _logger.LogInformation("Connecting to " + url);
+            RecorderEvent?.Invoke(this, new RecorderEventArgs($"Connecting to {url}", LogLevel.Information));
             webRequest = (HttpWebRequest)WebRequest.Create(url);
             HttpWebResponse resp;
             try
@@ -285,13 +294,13 @@ namespace StreamRecorderLib.Services
                         {
                             fullyDownloaded = true;
                             // reached the end of the MP3 file / stream
-                            _logger.LogInformation("Stream ended.");
+                            RecorderEvent?.Invoke(this, new RecorderEventArgs($"Stream ended.", LogLevel.Information));
                             break;
                         }
                         catch (WebException)
                         {
                             // probably we have aborted download from the GUI thread
-                            _logger.LogInformation("Aborted download.");
+                            RecorderEvent?.Invoke(this, new RecorderEventArgs($"Aborted download.", LogLevel.Information));
                             break;
                         }
                         if (frame == null) break;
@@ -313,7 +322,9 @@ namespace StreamRecorderLib.Services
                         bufferedWaveProvider.AddSamples(buffer, 0, decompressed);
                     }
                 } while (playbackState != StreamingPlaybackState.Stopped);
-                _logger.LogInformation("Exiting");
+
+                RecorderEvent?.Invoke(this, new RecorderEventArgs($"Exiting.", LogLevel.Information));
+
                 // was doing this in a finally block, but for some reason
                 // we are hanging on response stream .Dispose so never get there
                 decompressor.Dispose();

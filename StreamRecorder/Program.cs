@@ -2,6 +2,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using StreamRecorder.Logging;
 using StreamRecorderLib.Domain;
 using StreamRecorderLib.Interfaces;
 using StreamRecorderLib.Services;
@@ -19,6 +20,14 @@ namespace StreamRecorder
         {
             await Host.CreateDefaultBuilder(args)
                 .UseContentRoot(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location))
+                .ConfigureLogging(builder =>
+                {
+                    builder.ClearProviders().AddColorConsoleLogger(configuration =>
+                    {
+                        configuration.LogLevels.Add(LogLevel.Warning, ConsoleColor.Yellow);
+                        configuration.LogLevels.Add(LogLevel.Error, ConsoleColor.Red);
+                    });
+                })
                 .ConfigureServices((hostContext, services) =>
                 {
                     services.AddHostedService<ConsoleHostedService>();
@@ -26,6 +35,7 @@ namespace StreamRecorder
                     services.AddSingleton<IRecorderService, StreamRecorderService>();
                     services.AddSingleton<IFileManagementService, FileManagementService>();
                     services.AddOptions<AppSettings>().Bind(hostContext.Configuration.GetSection("AppConfig"));
+                    services.AddLogging();
                 })
                 .RunConsoleAsync();
         }

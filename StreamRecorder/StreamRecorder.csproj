@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -19,6 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\StreamRecorder.Logging\StreamRecorder.Logging.csproj" />
     <ProjectReference Include="..\StreamRecorderLib\StreamRecorderLib.csproj" />
   </ItemGroup>
 

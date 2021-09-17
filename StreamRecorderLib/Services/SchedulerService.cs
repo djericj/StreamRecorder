@@ -26,7 +26,10 @@ namespace StreamRecorderLib.Services
         private readonly IRecorderService _recorderService;
         private readonly IFileManagementService _fileManagementService;
 
-        public SchedulerService(ILogger<SchedulerService> logger, IOptions<AppSettings> appSettings, IRecorderService recorderService, IFileManagementService fileManagementService)
+        public SchedulerService(ILogger<SchedulerService> logger,
+                                IOptions<AppSettings> appSettings,
+                                IRecorderService recorderService,
+                                IFileManagementService fileManagementService)
         {
             _logger = logger;
             _appSettings = appSettings;
@@ -48,15 +51,6 @@ namespace StreamRecorderLib.Services
                 };
                 _timer1.Elapsed += Timer1_Elapsed;
                 _timer1.Start();
-
-                _currentShow = GetCurrentShow();
-                if (_currentShow != null)
-                {
-                    _logger.LogInformation($"Current show is {_currentShow.Title}");
-                    if (DateTime.Now.TimeOfDay > _currentShow.StartTime)
-                        _currentShow.StartTime = DateTime.Now.TimeOfDay;
-                    StartShow(_currentShow);
-                }
             });
         }
 
@@ -76,13 +70,15 @@ namespace StreamRecorderLib.Services
 
         private void StartShow(Show show)
         {
+            var now = DateTime.Now;
+            show.StartTime = new TimeSpan(now.Hour, now.Minute, now.Second);
             _logger.LogInformation($"Starting show {_currentShow.Title}");
             var path = $"{_appSettings.Value.SaveFolder}\\" +
-                       $"{DateTime.Now:yyy-MM-dd}\\" +
+                       $"{now:yyy-MM-dd}\\" +
                        $"{show.Id:00}-" +
                        $"{show.Title}-" +
-                       $"{DateTime.Now:yyy-MM-dd}-" +
-                       $"{show.StartTime:hhmm}-" +
+                       $"{now:yyy-MM-dd}-" +
+                       $"{now:hhmm}-" +
                        $"{show.EndTime:hhmm}.wav";
 
             if (!Directory.Exists(Path.GetDirectoryName(path)))
@@ -90,6 +86,9 @@ namespace StreamRecorderLib.Services
 
             if (File.Exists(path))
                 File.Delete(path);
+
+            _recorderService.RecorderEvent += _recorderService_RecorderEvent;
+            _recorderService.RecorderException += _recorderService_RecorderException;
 
             _recorderService.Record(path);
 
@@ -103,6 +102,8 @@ namespace StreamRecorderLib.Services
 
             _logger.LogInformation($"Ending show {show.Title}");
             _recorderService.Stop();
+            _recorderService.RecorderEvent -= _recorderService_RecorderEvent;
+            _recorderService.RecorderException -= _recorderService_RecorderException;
 
             Thread.Sleep(2000);
 
@@ -134,8 +135,6 @@ namespace StreamRecorderLib.Services
                         if (!_recording)
                         {
                             StartShow(_currentShow);
-                            _logger.LogInformation($"Starting {_currentShow.Title}");
-                            _logger.LogInformation($"Recording {_currentShow.Title}");
                             _recording = true;
                         }
                     }
@@ -143,13 +142,15 @@ namespace StreamRecorderLib.Services
                     {
                         // end show
                         EndShow(_currentShow);
-                        _logger.LogInformation($"End show {_currentShow.Title}");
-                        _logger.LogInformation($"Stop recording {_currentShow.Title}");
 
                         _currentShow = null;
                         _recording = false;
 
-                        if (timeOfDay > _lastShow.EndTime) _idle = true;
+                        if (timeOfDay > _lastShow.EndTime)
+                        {
+                            _idle = true;
+                            _logger.LogInformation($"Next show starts at {_currentShow.StartTime.ToString(@"hh\:mm")}");
+                        }
                     }
                     else
                     {
@@ -159,6 +160,21 @@ namespace StreamRecorderLib.Services
                 }
             }
         }
+
+        private void _recorderService_RecorderException(object sender, Events.RecorderExceptionArgs e)
+        {
+            if (e.Exception.Message.Contains("NoDriver calling waveOutWrite")) // handles a restart of the Windows Audio Service
+            {
+                EndShow(_currentShow);
+                if (_appSettings.Value.AutoRestart)
+                {
+                    _logger.LogWarning("Attempting restart...");
+                    StartShow(_currentShow);
+                }
+            }
+        }
+
+        private void _recorderService_RecorderEvent(object sender, Events.RecorderEventArgs e) => _logger.Log(e.LogLevel, e.Message);
 
         private Show GetCurrentShow() => _shows.Where(x => TimeBetween(DateTime.Now, x.StartTime, x.EndTime)).FirstOrDefault();
 
