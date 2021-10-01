@@ -24,17 +24,18 @@ namespace StreamRecorderLib.Services
         private bool _idle = false;
         private bool _recording = false;
         private readonly IRecorderService _recorderService;
-        private readonly IFileManagementService _fileManagementService;
+
+        public event EventHandler<Show> ShowStarted;
+
+        public event EventHandler<Show> ShowEnded;
 
         public SchedulerService(ILogger<SchedulerService> logger,
                                 IOptions<AppSettings> appSettings,
-                                IRecorderService recorderService,
-                                IFileManagementService fileManagementService)
+                                IRecorderService recorderService)
         {
             _logger = logger;
             _appSettings = appSettings;
             _recorderService = recorderService;
-            _fileManagementService = fileManagementService;
         }
 
         public async Task Start()
@@ -70,63 +71,78 @@ namespace StreamRecorderLib.Services
 
         private void StartShow(Show show)
         {
-            var now = DateTime.Now;
-            show.StartTime = new TimeSpan(now.Hour, now.Minute, now.Second);
-            _logger.LogInformation($"Starting show {_currentShow.Title}");
-            var path = $"{_appSettings.Value.SaveFolder}\\" +
-                       $"{now:yyy-MM-dd}\\" +
-                       $"{show.Id:00}-" +
-                       $"{show.Title}-" +
-                       $"{now:yyy-MM-dd}-" +
-                       $"{now:hhmm}-" +
-                       $"{show.EndTime:hhmm}.wav";
+            if (show.Status != Domain.Types.ShowStatusTypes.ShowStatusType.Started)
+            {
+                var now = DateTime.Now;
+                show.StartTime = new TimeSpan(now.Hour, now.Minute, now.Second);
+                _logger.LogInformation($"Starting show {_currentShow.Title}");
+                var path = @$"{_appSettings.Value.SaveFolder}\" +
+                           @$"{_appSettings.Value.Station.CallSign}\" +
+                           @$"{now:yyy-MM-dd}\" +
+                           $"{show.Id:00}-" +
+                           $"{show.Title}-" +
+                           $"{now:yyy-MM-dd}-" +
+                           $"{now:HHmm}-" +
+                           $"{show.EndTime:hhmm}.wav";
 
-            if (!Directory.Exists(Path.GetDirectoryName(path)))
-                Directory.CreateDirectory(Path.GetDirectoryName(path));
+                if (!Directory.Exists(Path.GetDirectoryName(path)))
+                    Directory.CreateDirectory(Path.GetDirectoryName(path));
 
-            if (File.Exists(path))
-                File.Delete(path);
+                if (File.Exists(path))
+                    File.Delete(path);
 
-            _recorderService.RecorderEvent += _recorderService_RecorderEvent;
-            _recorderService.RecorderException += _recorderService_RecorderException;
+                _recorderService.RecorderEvent += _recorderService_RecorderEvent;
+                _recorderService.RecorderException += _recorderService_RecorderException;
 
-            _recorderService.Record(path);
+                _recorderService.Record(path);
 
-            show.FileName = path;
+                show.Status = Domain.Types.ShowStatusTypes.ShowStatusType.Started;
+                show.FileName = path;
+                ShowStarted?.Invoke(this, show);
+            }
         }
 
         private void EndShow(Show show)
         {
-            var existingName = Path.GetFileNameWithoutExtension(show.FileName);
-            var newName = existingName[0..^4] + DateTime.Now.TimeOfDay.ToString("hhmm") + ".wav";
+            if (show.Status != Domain.Types.ShowStatusTypes.ShowStatusType.Ended)
+            {
+                var existingName = Path.GetFileNameWithoutExtension(show.FileName);
+                var newName = existingName[0..^4] + DateTime.Now.TimeOfDay.ToString("hhmm") + ".wav";
 
-            _logger.LogInformation($"Ending show {show.Title}");
-            _recorderService.Stop();
-            _recorderService.RecorderEvent -= _recorderService_RecorderEvent;
-            _recorderService.RecorderException -= _recorderService_RecorderException;
+                _logger.LogInformation($"Ending show {show.Title}");
+                _recorderService.Stop();
+                _recorderService.RecorderEvent -= _recorderService_RecorderEvent;
+                _recorderService.RecorderException -= _recorderService_RecorderException;
 
-            Thread.Sleep(2000);
+                Thread.Sleep(2000);
 
-            File.Move(show.FileName, Path.Combine(Path.GetDirectoryName(show.FileName), newName));
-            show.FileName = newName;
+                File.Move(show.FileName, Path.Combine(Path.GetDirectoryName(show.FileName), newName));
+
+                show.Status = Domain.Types.ShowStatusTypes.ShowStatusType.Ended;
+                show.FileName = newName;
+                ShowEnded?.Invoke(this, show);
+            }
         }
 
         private void Timer1_Elapsed(object sender, System.Timers.ElapsedEventArgs e)
         {
             var timeOfDay = DateTime.Now.TimeOfDay;
+            var firstShow = _shows.OrderBy(x => x.StartTime).FirstOrDefault();
+            var lastShow = _shows.OrderByDescending(x => x.EndTime).FirstOrDefault();
             if (_idle)
             {
-                if (timeOfDay > _firstShow.StartTime && timeOfDay < _firstShow.EndTime)
+                if (timeOfDay > firstShow.StartTime && timeOfDay < firstShow.EndTime)
                 {
-                    _shows = GetShows();
                     _idle = false;
-                    _currentShow = _firstShow;
+                    _currentShow = firstShow;
                 }
             }
             if (!_idle)
             {
-                if (_currentShow == null) _currentShow = GetNextShow(timeOfDay);
-
+                if (_currentShow == null)
+                {
+                    _currentShow = GetNextShow(timeOfDay);
+                }
                 if (_currentShow != null)
                 {
                     if (timeOfDay > _currentShow.StartTime && timeOfDay < _currentShow.EndTime)
@@ -135,6 +151,8 @@ namespace StreamRecorderLib.Services
                         if (!_recording)
                         {
                             StartShow(_currentShow);
+                            _logger.LogInformation($"Starting {_currentShow.Title}");
+                            _logger.LogInformation($"Recording {_currentShow.Title}");
                             _recording = true;
                         }
                     }
@@ -142,14 +160,15 @@ namespace StreamRecorderLib.Services
                     {
                         // end show
                         EndShow(_currentShow);
+                        _logger.LogInformation($"End show {_currentShow.Title}");
+                        _logger.LogInformation($"Stop recording {_currentShow.Title}");
 
-                        _currentShow = null;
                         _recording = false;
+                        _currentShow = GetNextShow(_currentShow);
 
-                        if (timeOfDay > _lastShow.EndTime)
+                        if (timeOfDay > lastShow.EndTime)
                         {
                             _idle = true;
-                            _logger.LogInformation($"Next show starts at {_currentShow.StartTime.ToString(@"hh\:mm")}");
                         }
                     }
                     else
@@ -191,7 +210,7 @@ namespace StreamRecorderLib.Services
             return s;
         }
 
-        private List<Show> GetShows() => _appSettings.Value.Schedule;
+        private List<Show> GetShows() => _appSettings.Value.Station.Shows.OrderBy(x => x.StartTime).ToList();
 
         private static bool TimeBetween(DateTime datetime, TimeSpan start, TimeSpan end)
         {

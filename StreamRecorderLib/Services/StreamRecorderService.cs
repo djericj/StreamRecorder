@@ -60,7 +60,7 @@ namespace StreamRecorderLib.Services
         {
             _appSettings = appSettings;
 
-            _playList = _appSettings.Value.Playlist;
+            _playList = _appSettings.Value.Station.Playlist;
 
             timer1 = new System.Timers.Timer
             {

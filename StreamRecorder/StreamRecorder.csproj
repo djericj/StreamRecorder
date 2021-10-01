@@ -19,6 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\StreamRecorder.Converter\StreamRecorder.Converter.csproj" />
     <ProjectReference Include="..\StreamRecorder.Logging\StreamRecorder.Logging.csproj" />
     <ProjectReference Include="..\StreamRecorderLib\StreamRecorderLib.csproj" />
   </ItemGroup>
